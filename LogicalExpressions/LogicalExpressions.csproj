@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Документация и метаданные пакета -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Description>Parser и движок для логических выражений: парсинг, нормализация, CNF/DNF, минимизация, компиляция.</Description>
+    <Authors>LogicalExpressions</Authors>
+    <PackageId>LogicalEngine</PackageId>
+    <RepositoryUrl>https://example.com/your-repo</RepositoryUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- Анализаторы: без пакета, задаём уровень -->
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+</Project>
