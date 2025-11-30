@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 
-namespace LogicalExpressions.Optimization.Bdd
+namespace LogicalExpressions.Optimization.BDD
 {
     /// <summary>
     /// Узел бинарной диаграммы решений (BDD).

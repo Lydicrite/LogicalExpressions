@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using LogicalExpressions.Core.Nodes;
 
-namespace LogicalExpressions.Optimization.Bdd
+namespace LogicalExpressions.Optimization.BDD
 {
     /// <summary>
     /// Конвертер для преобразования BDD обратно в AST (LogicNode).

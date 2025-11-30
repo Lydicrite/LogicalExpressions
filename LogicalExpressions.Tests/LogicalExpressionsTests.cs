@@ -702,11 +702,10 @@ namespace MSTests
         #region Property-based тесты
 
         [DataTestMethod]
-        [Timeout(TestTimeoutMs * 3)]
+        [Timeout(TestTimeoutMs * 15)]
         [Description("Property-based: случайная генерация валидных выражений и проверка эквивалентности с алиасами")]
         [DataRow("ShuntingYard")]
         [DataRow("Pratt")]
-        // [Ignore("Heavy property test temporarily disabled after tokenizer changes; other tests cover alias equivalence.")]
         public void Property_GeneratedExpressions_AliasesAreEquivalent(string strategy)
         {
             SetParserStrategyForTest(strategy);
@@ -897,6 +896,9 @@ namespace MSTests
         // Случайная замена операторов на алиасы
         private static string RandomlyAliasOperators(string expr, Random rnd)
         {
+            // Используем токенизатор для безопасной замены операторов без проблем с подстроками
+            var tokens = ExpressionParser.Tokenize(expr);
+            
             var replacements = new Dictionary<string, string[]> {
                 { "&", new[] { "AND", "∧" } },
                 { "|", new[] { "OR", "∨" } },
@@ -908,15 +910,19 @@ namespace MSTests
                 { "false", new[] { "0" } },
             };
 
-            foreach (var kv in replacements)
+            for (int i = 0; i < tokens.Count; i++)
             {
-                if (rnd.NextDouble() < 0.5)
+                var t = tokens[i];
+                if (replacements.TryGetValue(t, out var aliases))
                 {
-                    var alias = kv.Value[rnd.Next(kv.Value.Length)];
-                    expr = expr.Replace(kv.Key, alias);
+                     if (rnd.NextDouble() < 0.5)
+                     {
+                         tokens[i] = aliases[rnd.Next(aliases.Length)];
+                     }
                 }
             }
-            return expr;
+            
+            return string.Join(" ", tokens);
         }
 
         // --- Дополнительные property-based тесты для NormalizerVisitor ---

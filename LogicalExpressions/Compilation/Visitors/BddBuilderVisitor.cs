@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using LogicalExpressions.Core.Nodes;
-using LogicalExpressions.Optimization.Bdd;
+using LogicalExpressions.Optimization.BDD;
 
 namespace LogicalExpressions.Compilation.Visitors
 {

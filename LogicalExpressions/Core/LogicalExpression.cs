@@ -8,7 +8,7 @@ using System.Text;
 using LogicalExpressions.Core.Nodes;
 using LogicalExpressions.Compilation;
 using LogicalExpressions.Compilation.Visitors;
-using LogicalExpressions.Optimization.Bdd;
+using LogicalExpressions.Optimization.BDD;
 using LogicalExpressions.Utils;
 
 namespace LogicalExpressions.Core
