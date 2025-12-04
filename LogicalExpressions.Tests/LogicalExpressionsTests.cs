@@ -858,9 +858,10 @@ namespace MSTests
             */
         }
 
+
+
         // Вспомогательный вызов приватных методов через Reflection
         // reflection больше не требуется благодаря InternalsVisibleTo
-
         // Генерация случайного валидного выражения с контролем глубины
         private static (string expr, List<string> vars) GenerateRandomExpression(Random rnd, int maxDepth, string[] variablePool)
         {

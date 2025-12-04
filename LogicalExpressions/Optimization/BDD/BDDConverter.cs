@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using LogicalExpressions.Core.Nodes;
+using LogicalExpressions.Optimization.BDD;
 
 namespace LogicalExpressions.Optimization.BDD
 {

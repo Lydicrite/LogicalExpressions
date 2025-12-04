@@ -8,16 +8,16 @@ namespace LogicalExpressions.Compilation.Visitors
     /// <summary>
     /// Посетитель для построения бинарной диаграммы решений (BDD) из AST.
     /// </summary>
-    public class BddBuilderVisitor(BddManager manager, Dictionary<string, int> varMap) : ILEVisitor
+    public class BDDBuilderVisitor(BDDManager manager, Dictionary<string, int> varMap) : ILEVisitor
     {
-        private readonly BddManager _manager = manager;
+        private readonly BDDManager _manager = manager;
         private readonly Dictionary<string, int> _varMap = varMap;
         private readonly Stack<BDDNode> _stack = new();
 
         /// <summary>
         /// Результат построения BDD.
         /// </summary>
-        public BDDNode Result => _stack.Count > 0 ? _stack.Peek() : BddManager.Zero;
+        public BDDNode Result => _stack.Count > 0 ? _stack.Peek() : BDDManager.Zero;
 
         /// <summary>
         /// Посещает узел логического выражения.
@@ -36,7 +36,7 @@ namespace LogicalExpressions.Compilation.Visitors
 
         private void VisitConstant(ConstantNode node)
         {
-            _stack.Push(node.Value ? BddManager.One : BddManager.Zero);
+            _stack.Push(node.Value ? BDDManager.One : BDDManager.Zero);
         }
 
         private void VisitVariable(VariableNode node)

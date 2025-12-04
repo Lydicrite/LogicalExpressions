@@ -5,97 +5,10 @@ using System.Threading;
 namespace LogicalExpressions.Optimization.BDD
 {
     /// <summary>
-    /// Узел бинарной диаграммы решений (BDD).
-    /// Является неизменяемым объектом, представляющим булеву функцию.
-    /// </summary>
-    public class BDDNode : IEquatable<BDDNode>
-    {
-        /// <summary>
-        /// Индекс переменной в заданном порядке.
-        /// Значение -1 указывает на терминальный узел (константу).
-        /// </summary>
-        public int VarIndex { get; }
-
-        /// <summary>
-        /// Дочерний узел для случая, когда переменная равна false.
-        /// </summary>
-        public BDDNode? Low { get; }
-
-        /// <summary>
-        /// Дочерний узел для случая, когда переменная равна true.
-        /// </summary>
-        public BDDNode? High { get; }
-
-        /// <summary>
-        /// Значение терминального узла (истина или ложь).
-        /// Актуально только если <see cref="IsTerminal"/> равно true.
-        /// </summary>
-        public bool Value { get; }
-
-        /// <summary>
-        /// Уникальный идентификатор узла.
-        /// </summary>
-        public int Id { get; }
-
-        // CA1805: Не инициализировать явно значением по умолчанию
-        private static int _idCounter;
-
-        private BDDNode(int varIndex, BDDNode? low, BDDNode? high, bool value)
-        {
-            VarIndex = varIndex;
-            Low = low;
-            High = high;
-            Value = value;
-            Id = Interlocked.Increment(ref _idCounter);
-        }
-
-        /// <summary>
-        /// Терминальный узел "Истина" (1).
-        /// </summary>
-        public static readonly BDDNode One = new BDDNode(-1, null, null, true);
-
-        /// <summary>
-        /// Терминальный узел "Ложь" (0).
-        /// </summary>
-        public static readonly BDDNode Zero = new BDDNode(-1, null, null, false);
-
-        /// <summary>
-        /// Создает новый нетерминальный узел BDD.
-        /// Выполняет базовую редукцию: если low == high, возвращает low.
-        /// </summary>
-        public static BDDNode Create(int varIndex, BDDNode low, BDDNode high)
-        {
-            if (low == high) return low;
-            return new BDDNode(varIndex, low, high, false);
-        }
-
-        /// <summary>
-        /// Возвращает true, если узел является терминальным (константой).
-        /// </summary>
-        public bool IsTerminal => VarIndex == -1;
-
-        public override bool Equals(object? obj) => Equals(obj as BDDNode);
-        
-        public bool Equals(BDDNode? other)
-        {
-            if (other is null) return false;
-            if (ReferenceEquals(this, other)) return true;
-            if (IsTerminal && other.IsTerminal) return Value == other.Value;
-            return VarIndex == other.VarIndex && Low == other.Low && High == other.High;
-        }
-
-        public override int GetHashCode()
-        {
-            if (IsTerminal) return Value.GetHashCode();
-            return HashCode.Combine(VarIndex, Low, High);
-        }
-    }
-
-    /// <summary>
     /// Менеджер для создания и управления узлами BDD.
     /// Обеспечивает каноничность представления (Shared BDD) через таблицу уникальности.
     /// </summary>
-    public class BddManager
+    public class BDDManager
     {
         // Таблица уникальных узлов: (varIndex, low, high) -> BDDNode
         private readonly Dictionary<(int varIndex, BDDNode low, BDDNode high), BDDNode> _uniqueTable = new();
@@ -138,6 +51,117 @@ namespace LogicalExpressions.Optimization.BDD
             node = BDDNode.Create(varIndex, low, high);
             _uniqueTable[key] = node;
             return node;
+        }
+
+        /// <summary>
+        /// Вычисляет количество узлов в поддереве (размер BDD).
+        /// </summary>
+        public static long GetNodeCount(BDDNode root)
+        {
+            if (root.IsTerminal) return 1;
+            var visited = new HashSet<int>();
+            var stack = new Stack<BDDNode>();
+            stack.Push(root);
+            long count = 0;
+            
+            while (stack.Count > 0)
+            {
+                var node = stack.Pop();
+                if (node.IsTerminal) continue;
+                if (!visited.Add(node.Id)) continue;
+                
+                count++;
+                if (node.Low != null) stack.Push(node.Low);
+                if (node.High != null) stack.Push(node.High);
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Меняет местами переменные на уровнях <paramref name="level"/> и <paramref name="level"/> + 1.
+        /// </summary>
+        /// <param name="root">Корневой узел BDD.</param>
+        /// <param name="level">Индекс уровня (переменной) для обмена с следующим.</param>
+        /// <returns>Новый корневой узел с измененным порядком переменных.</returns>
+        public BDDNode Swap(BDDNode root, int level)
+        {
+            var cache = new Dictionary<BDDNode, BDDNode>();
+            return SwapRecursive(root, level, cache);
+        }
+
+        private BDDNode SwapRecursive(BDDNode node, int level, Dictionary<BDDNode, BDDNode> cache)
+        {
+            // Если узел терминальный или его индекс больше следующего уровня, он не меняется
+            if (node.IsTerminal || node.VarIndex > level + 1)
+            {
+                return node;
+            }
+
+            if (cache.TryGetValue(node, out var cached))
+            {
+                return cached;
+            }
+
+            BDDNode result;
+
+            // Если индекс узла равен level + 1, он "всплывает" на уровень level
+            if (node.VarIndex == level + 1)
+            {
+                // Узел зависит от x_{i+1}, но не от x_i.
+                // В новом порядке x_{i+1} становится на уровень i.
+                // Индекс меняется на level, дети остаются те же (так как они > level + 1)
+                result = GetNode(level, node.Low!, node.High!);
+            }
+            // Если индекс узла равен level, выполняем обмен
+            else if (node.VarIndex == level)
+            {
+                var f0 = node.Low!;
+                var f1 = node.High!;
+
+                // Получаем кофакторы относительно переменной на уровне level + 1
+                GetCofactors(f0, level + 1, out var f00, out var f01);
+                GetCofactors(f1, level + 1, out var f10, out var f11);
+
+                // Строим новые узлы
+                // Новый уровень level (бывший x_{i+1})
+                // Low: x_i=0 -> f00 (x_{i+1}=0), f10 (x_{i+1}=1) => Зависит от x_i (теперь level + 1)
+                
+                // Новая структура:
+                // Level i (проверяет x_{i+1}):
+                //   Low (x_{i+1}=0): Level i+1 (проверяет x_i) -> Low: f00, High: f10
+                //   High (x_{i+1}=1): Level i+1 (проверяет x_i) -> Low: f01, High: f11
+
+                var newLow = GetNode(level + 1, f00, f10);
+                var newHigh = GetNode(level + 1, f01, f11);
+                
+                result = GetNode(level, newLow, newHigh);
+            }
+            // Если индекс меньше level, рекурсивно спускаемся
+            else
+            {
+                var newLow = SwapRecursive(node.Low!, level, cache);
+                var newHigh = SwapRecursive(node.High!, level, cache);
+                result = GetNode(node.VarIndex, newLow, newHigh);
+            }
+
+            cache[node] = result;
+            return result;
+        }
+
+        private static void GetCofactors(BDDNode node, int level, out BDDNode low, out BDDNode high)
+        {
+            if (node.VarIndex == level && !node.IsTerminal)
+            {
+                low = node.Low!;
+                high = node.High!;
+            }
+            else
+            {
+                // Если узел не зависит от переменной на этом уровне (VarIndex > level или Terminal),
+                // то он одинаков для обеих ветвей этой переменной.
+                low = node;
+                high = node;
+            }
         }
 
         /// <summary>

@@ -11,6 +11,8 @@ using LogicalExpressions.Compilation.Visitors;
 using LogicalExpressions.Optimization.BDD;
 using LogicalExpressions.Utils;
 
+using LogicalExpressions.Optimization.VariableOrdering;
+
 namespace LogicalExpressions.Core
 {
     [NotThreadSafe]
@@ -19,6 +21,7 @@ namespace LogicalExpressions.Core
         private readonly LogicNode _root;
         private readonly ImmutableArray<string> _variables;
         private readonly CompilationOptions _compilationOptions;
+        private readonly IVariableOrderingStrategy _orderingStrategy;
         
         // Cache for compiled delegate
         private Func<bool[], bool>? _compiledDelegate;
@@ -33,12 +36,27 @@ namespace LogicalExpressions.Core
         /// Переменные автоматически собираются и сортируются по алфавиту.
         /// </summary>
         public LogicalExpression(LogicNode root)
+            : this(root, VariableOrderOptimizer.Default)
+        {
+        }
+
+        /// <summary>
+        /// Создает новое логическое выражение с заданной стратегией оптимизации порядка переменных.
+        /// </summary>
+        public LogicalExpression(LogicNode root, IVariableOrderingStrategy orderingStrategy)
         {
             ArgumentNullException.ThrowIfNull(root);
+            ArgumentNullException.ThrowIfNull(orderingStrategy);
+            
             _root = root;
+            _orderingStrategy = orderingStrategy;
+            
             var vars = new HashSet<string>(StringComparer.Ordinal);
             _root.CollectVariables(vars);
-            _variables = vars.OrderBy(v => v, StringComparer.Ordinal).ToImmutableArray();
+            
+            // Применяем стратегию оптимизации
+            var orderedVars = _orderingStrategy.OptimizeOrder(_root, vars.ToList());
+            _variables = orderedVars.ToImmutableArray();
             _compilationOptions = new CompilationOptions();
             
             // Index the variables in the AST
@@ -51,11 +69,12 @@ namespace LogicalExpressions.Core
             _root = indexer.ProcessNode(_root);
         }
 
-        private LogicalExpression(LogicNode root, ImmutableArray<string> variables, CompilationOptions options)
+        private LogicalExpression(LogicNode root, ImmutableArray<string> variables, CompilationOptions options, IVariableOrderingStrategy orderingStrategy)
         {
             _root = root;
             _variables = variables;
             _compilationOptions = options;
+            _orderingStrategy = orderingStrategy;
             
             // Ensure indices are correct if variables changed (though usually we pass matching root)
             var indices = new Dictionary<string, int>();
@@ -73,6 +92,18 @@ namespace LogicalExpressions.Core
         public IReadOnlyList<string> Variables => _variables;
 
         /// <summary>
+        /// Оптимизирует порядок переменных, используя заданную стратегию.
+        /// Возвращает новый экземпляр выражения с примененным порядком.
+        /// </summary>
+        public LogicalExpression OptimizeVariableOrder(IVariableOrderingStrategy strategy)
+        {
+            var newOrder = strategy.OptimizeOrder(_root, _variables);
+            // При явном вызове обновляем стратегию для нового объекта
+            var newVars = newOrder.ToImmutableArray();
+            return new LogicalExpression(_root, newVars, _compilationOptions, strategy);
+        }
+
+        /// <summary>
         /// Создает новое выражение с заданным порядком переменных.
         /// Позволяет переупорядочить переменные или добавить новые (суперсет).
         /// </summary>
@@ -87,7 +118,8 @@ namespace LogicalExpressions.Core
             if (!_variables.All(v => providedVars.Contains(v)))
                  throw new ArgumentException("Предоставленные переменные не содержат всех переменных выражения");
 
-            return new LogicalExpression(_root, newVars, _compilationOptions);
+            // Сохраняем текущую стратегию (наследование)
+            return new LogicalExpression(_root, newVars, _compilationOptions, _orderingStrategy);
         }
 
         /// <summary>
@@ -95,7 +127,8 @@ namespace LogicalExpressions.Core
         /// </summary>
         public LogicalExpression WithCompilationOptions(CompilationOptions options)
         {
-            return new LogicalExpression(_root, _variables, options);
+            // Сохраняем текущую стратегию (наследование)
+            return new LogicalExpression(_root, _variables, options, _orderingStrategy);
         }
 
         /// <summary>
@@ -187,7 +220,8 @@ namespace LogicalExpressions.Core
         {
             var visitor = new NormalizerVisitor();
             var newRoot = visitor.Normalize(_root);
-            return new LogicalExpression(newRoot, _variables, _compilationOptions);
+            // Сохраняем стратегию
+            return new LogicalExpression(newRoot, _variables, _compilationOptions, _orderingStrategy);
         }
         
         /// <summary>
@@ -196,15 +230,16 @@ namespace LogicalExpressions.Core
         /// </summary>
         public LogicalExpression Minimize()
         {
-            var bdd = BuildBdd();
-            var converter = new BDDConverter(_variables.ToArray());
+            var (bdd, order) = BuildBddInternal();
+            var converter = new BDDConverter(order.ToArray());
             var simplifiedNode = converter.Convert(bdd);
             
             // Дополнительно прогоняем через Normalizer для устранения лишних скобок и констант
             var visitor = new NormalizerVisitor();
             simplifiedNode = visitor.Normalize(simplifiedNode);
 
-            return new LogicalExpression(simplifiedNode, _variables, _compilationOptions);
+            // Сохраняем стратегию
+            return new LogicalExpression(simplifiedNode, _variables, _compilationOptions, _orderingStrategy);
         }
         
         /// <summary>
@@ -223,7 +258,7 @@ namespace LogicalExpressions.Core
         public bool IsTautology()
         {
             var bdd = BuildBdd();
-            return bdd == BddManager.One;
+            return bdd == BDDManager.One;
         }
 
         /// <summary>
@@ -232,7 +267,7 @@ namespace LogicalExpressions.Core
         public bool IsContradiction()
         {
              var bdd = BuildBdd();
-             return bdd == BddManager.Zero;
+             return bdd == BDDManager.Zero;
         }
 
         /// <summary>
@@ -241,18 +276,22 @@ namespace LogicalExpressions.Core
         public bool IsSatisfiable()
         {
              var bdd = BuildBdd();
-             return bdd != BddManager.Zero;
+             return bdd != BDDManager.Zero;
         }
 
-        private BDDNode BuildBdd()
+        private BDDNode BuildBdd() => BuildBddInternal().Node;
+
+        private (BDDNode Node, List<string> Order) BuildBddInternal()
         {
-            var manager = new BddManager();
-            var varMap = new Dictionary<string, int>();
-            for(int i=0; i<_variables.Length; i++) varMap[_variables[i]] = i;
+            var manager = new BDDManager();
+            // Оптимизация порядка переменных перед построением BDD
+            var optimizedVars = _orderingStrategy.OptimizeOrder(_root, _variables).ToList();
             
-            var visitor = new BddBuilderVisitor(manager, varMap);
+            var varMap = optimizedVars.Select((v, idx) => (v, idx)).ToDictionary(x => x.v, x => x.idx);
+            
+            var visitor = new BDDBuilderVisitor(manager, varMap);
             _root.Accept(visitor);
-            return visitor.Result;
+            return (visitor.Result, optimizedVars);
         }
 
         public bool StructuralEquals(LogicalExpression other)
@@ -272,12 +311,12 @@ namespace LogicalExpressions.Core
              var sortedVars = allVars.OrderBy(v => v, StringComparer.Ordinal).ToList();
              var varMap = sortedVars.Select((v, i) => (v, i)).ToDictionary(x => x.v, x => x.i);
              
-             var manager = new BddManager();
+             var manager = new BDDManager();
              
-             var v1 = new BddBuilderVisitor(manager, varMap);
+             var v1 = new BDDBuilderVisitor(manager, varMap);
              _root.Accept(v1);
              
-             var v2 = new BddBuilderVisitor(manager, varMap);
+             var v2 = new BDDBuilderVisitor(manager, varMap);
              other._root.Accept(v2);
              
              return v1.Result == v2.Result;
